@@ -1636,6 +1636,7 @@ footer strong { color: var(--pg-purple); }
 <script>
   window.PXG_SYNC_URL = "https://filling-phantom-cookbook-wallet.trycloudflare.com";
   window.PXG_SYNC_SECRET = "a8995a0cccaeb01914c0614b";
+  window.PXG_CONFIG_JSON_URL = "https://raw.githubusercontent.com/sammartins2007-tech/pxg-rfp-us57mvfz/main/config.json";
 </script>
 <!-- PXG_SYNC_CONFIG_END -->
 </head>
@@ -16158,6 +16159,30 @@ window.PXGSync = (function() {
   if (CONFIG.secret) writeLS(LS_SECRET, CONFIG.secret);
   if (CONFIG.author) writeLS(LS_AUTHOR, CONFIG.author);
 
+  // ---- Fetch live config from GitHub raw (never CDN-cached) ----
+  // This lets us update the tunnel URL/secret without waiting for GitHub Pages
+  // to rebuild. If PXG_CONFIG_JSON_URL is set on window, fetch that URL and
+  // merge {url, secret} into CONFIG before bootstrap.
+  async function fetchLiveConfig() {
+    const cfgUrl = window.PXG_CONFIG_JSON_URL || '';
+    if (!cfgUrl) return;
+    try {
+      const r = await fetch(cfgUrl + '?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return;
+      const j = await r.json();
+      if (j.url && j.url !== CONFIG.url) {
+        CONFIG.url = j.url.replace(/\/+$/, '');
+        writeLS(LS_URL, CONFIG.url);
+        console.log('[PXGSync] live config updated URL:', CONFIG.url);
+      }
+      if (j.secret && j.secret !== CONFIG.secret) {
+        CONFIG.secret = j.secret;
+        writeLS(LS_SECRET, CONFIG.secret);
+        console.log('[PXGSync] live config updated secret');
+      }
+    } catch(e) { console.warn('[PXGSync] fetchLiveConfig failed', e); }
+  }
+
   const CLARIF_KEY = 'pxg-rfp-clarifications-v3-2026-09-17';
   const namespaces = new Map();     // ns → spec
   const baseVersions = {};          // ns → { id: v }
@@ -16375,7 +16400,9 @@ window.PXGSync = (function() {
       });
     });
     // Boot! If URL+secret are baked in but no name yet, auto-open the name modal.
-    setTimeout(() => {
+    setTimeout(async () => {
+      // First, try to pull a fresher URL/secret from GitHub raw (bypasses Pages CDN)
+      await fetchLiveConfig();
       if (CONFIG.url && CONFIG.secret && !CONFIG.author) {
         openConfigModal();
       } else {
